@@ -5,6 +5,7 @@ import 'package:respiro/core/theme/app_typography.dart';
 import 'package:respiro/core/constants/app_constants.dart';
 import 'package:respiro/core/widgets/app_input.dart';
 import 'package:respiro/core/widgets/app_button.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -30,16 +31,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _onRegister() {
+  Future<void> _onRegister() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-      // TODO: Implement registration
-      Future.delayed(const Duration(seconds: 1), () {
+      try {
+        final AuthResponse res = await Supabase.instance.client.auth.signUp(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+          data: {'full_name': _nameController.text.trim()},
+        );
         if (mounted) {
           setState(() => _isLoading = false);
-          context.go('/dashboard');
+          if (res.user != null) {
+            context.go('/dashboard');
+          }
         }
-      });
+      } on AuthException catch (e) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Terjadi kesalahan yang tidak terduga')));
+        }
+      }
     }
   }
 

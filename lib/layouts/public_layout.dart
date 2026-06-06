@@ -13,6 +13,7 @@ class PublicLayout extends StatelessWidget {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: navigationShell.currentIndex,
         onTap: (index) => navigationShell.goBranch(index),
+        type: BottomNavigationBarType.fixed,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard_rounded),
@@ -23,16 +24,16 @@ class PublicLayout extends StatelessWidget {
             label: 'Map',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.favorite_rounded),
-            label: 'Check',
+            icon: Icon(Icons.location_on_rounded),
+            label: 'Catatan',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.local_hospital_rounded),
             label: 'Fasilitas',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.history_rounded),
-            label: 'Riwayat',
+            icon: Icon(Icons.person_outline_rounded),
+            label: 'Profile',
           ),
         ],
       ),
