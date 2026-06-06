@@ -43,6 +43,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         if (mounted) {
           setState(() => _isLoading = false);
           if (res.user != null) {
+            try {
+              await Supabase.instance.client.from('profiles').insert({
+                'id': res.user!.id,
+                'full_name': _nameController.text.trim(),
+              });
+            } catch (_) {
+              // Ignore if already exists or fails
+            }
             context.go('/dashboard');
           }
         }

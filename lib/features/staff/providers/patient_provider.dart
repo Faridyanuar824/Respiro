@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:respiro/features/staff/models/patient_model.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class PatientProvider extends ChangeNotifier {
   List<PatientModel> _patients = [];
@@ -27,148 +28,73 @@ class PatientProvider extends ChangeNotifier {
       _patients.where((p) => p.riskLevel == 'Low').length;
 
   PatientProvider() {
-    _loadMockData();
+    fetchPatients();
   }
 
-  void _loadMockData() {
+  Future<void> fetchPatients() async {
     _isLoading = true;
     notifyListeners();
 
-    _patients = [
-      PatientModel(
-        id: 'P001',
-        name: 'Andi Pratama',
-        age: 35,
-        gender: 'Laki-laki',
-        symptom: 'Batuk berdahak, sesak napas',
-        riskLevel: 'High',
-        location: 'Kecamatan Pusat, Surabaya',
-        puskesmas: 'Puskesmas Pusat',
-        lastUpdate: DateTime.now().subtract(const Duration(hours: 2)),
-        symptomHistory: [
-          SymptomRecord(
-            date: DateTime.now().subtract(const Duration(days: 1)),
-            symptom: 'Batuk berdahak',
-            severity: 3,
-          ),
-          SymptomRecord(
-            date: DateTime.now().subtract(const Duration(days: 3)),
-            symptom: 'Demam tinggi',
-            severity: 4,
-          ),
-        ],
-        visitHistory: [
-          VisitRecord(
-            date: DateTime.now().subtract(const Duration(days: 1)),
-            puskesmas: 'Puskesmas Pusat',
-            diagnosis: 'ISPA Akut',
-            notes: 'Pemberian antibiotik',
-          ),
-        ],
-      ),
-      PatientModel(
-        id: 'P002',
-        name: 'Siti Rahayu',
-        age: 28,
-        gender: 'Perempuan',
-        symptom: 'Batuk ringan, pilek',
-        riskLevel: 'Medium',
-        location: 'Kecamatan Utara, Surabaya',
-        puskesmas: 'Puskesmas Utara',
-        lastUpdate: DateTime.now().subtract(const Duration(days: 1)),
-        symptomHistory: [
-          SymptomRecord(
-            date: DateTime.now().subtract(const Duration(days: 2)),
-            symptom: 'Batuk ringan',
-            severity: 2,
-          ),
-        ],
-        visitHistory: [
-          VisitRecord(
-            date: DateTime.now().subtract(const Duration(days: 2)),
-            puskesmas: 'Puskesmas Utara',
-            diagnosis: 'ISPA Ringan',
-            notes: 'Rawat jalan',
-          ),
-        ],
-      ),
-      PatientModel(
-        id: 'P003',
-        name: 'Budi Santoso',
-        age: 45,
-        gender: 'Laki-laki',
-        symptom: 'Tidak ada gejala',
-        riskLevel: 'Low',
-        location: 'Kecamatan Selatan, Surabaya',
-        puskesmas: 'Puskesmas Selatan',
-        lastUpdate: DateTime.now().subtract(const Duration(days: 5)),
-        symptomHistory: [],
-        visitHistory: [],
-      ),
-      PatientModel(
-        id: 'P004',
-        name: 'Dewi Lestari',
-        age: 22,
-        gender: 'Perempuan',
-        symptom: 'Sesak napas, demam',
-        riskLevel: 'High',
-        location: 'Kecamatan Timur, Surabaya',
-        puskesmas: 'Puskesmas Timur',
-        lastUpdate: DateTime.now().subtract(const Duration(hours: 6)),
-        symptomHistory: [
-          SymptomRecord(
-            date: DateTime.now().subtract(const Duration(hours: 6)),
-            symptom: 'Sesak napas',
-            severity: 4,
-          ),
-          SymptomRecord(
-            date: DateTime.now().subtract(const Duration(days: 1)),
-            symptom: 'Demam tinggi',
-            severity: 3,
-          ),
-        ],
-        visitHistory: [
-          VisitRecord(
-            date: DateTime.now().subtract(const Duration(hours: 6)),
-            puskesmas: 'Puskesmas Timur',
-            diagnosis: 'ISPA Berat',
-            notes: 'Dirujuk ke RSUD',
-          ),
-        ],
-      ),
-      PatientModel(
-        id: 'P005',
-        name: 'Ahmad Fauzi',
-        age: 50,
-        gender: 'Laki-laki',
-        symptom: 'Batuk kronis',
-        riskLevel: 'Medium',
-        location: 'Kecamatan Barat, Surabaya',
-        puskesmas: 'Puskesmas Barat',
-        lastUpdate: DateTime.now().subtract(const Duration(days: 3)),
-        symptomHistory: [
-          SymptomRecord(
-            date: DateTime.now().subtract(const Duration(days: 3)),
-            symptom: 'Batuk kronis',
-            severity: 3,
-          ),
-        ],
-        visitHistory: [],
-      ),
-      PatientModel(
-        id: 'P006',
-        name: 'Maya Indah',
-        age: 30,
-        gender: 'Perempuan',
-        symptom: 'Pilek, bersin',
-        riskLevel: 'Low',
-        location: 'Kecamatan Pusat, Surabaya',
-        puskesmas: 'Puskesmas Pusat',
-        lastUpdate: DateTime.now().subtract(const Duration(days: 7)),
-        symptomHistory: [],
-        visitHistory: [],
-      ),
-    ];
+    try {
+      final response = await Supabase.instance.client
+          .from('activities')
+          .select()
+          .order('created_at', ascending: false);
+
+      final Map<String, PatientModel> uniquePatients = {};
+
+      for (var row in response) {
+        final userId = row['user_id'] as String? ?? 'Unknown';
+        final symptomsList = (row['symptoms'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+        final location = row['location'] as String? ?? 'Surabaya';
+        final createdAt = DateTime.tryParse(row['created_at'].toString()) ?? DateTime.now();
+
+        // Tentukan tingkat risiko berdasarkan jumlah gejala
+        int severity = symptomsList.length;
+        String riskLevel = 'Low';
+        if (severity >= 3) {
+          riskLevel = 'High';
+        } else if (severity >= 1) {
+          riskLevel = 'Medium';
+        }
+
+        if (!uniquePatients.containsKey(userId)) {
+          uniquePatients[userId] = PatientModel(
+            id: userId.length > 8 ? userId.substring(0, 8) : userId,
+            name: 'Pasien ${userId.length > 4 ? userId.substring(0, 4).toUpperCase() : "Anon"}',
+            age: 0,
+            gender: 'Anonim',
+            symptom: symptomsList.isNotEmpty ? symptomsList.join(', ') : 'Tidak ada gejala',
+            riskLevel: riskLevel,
+            location: location,
+            puskesmas: 'Belum Terdaftar',
+            lastUpdate: createdAt,
+            symptomHistory: [
+              SymptomRecord(
+                date: createdAt,
+                symptom: symptomsList.isNotEmpty ? symptomsList.join(', ') : 'Aman',
+                severity: severity,
+              )
+            ],
+            visitHistory: [],
+          );
+        } else {
+          // Tambahkan histori jika user sudah ada
+          uniquePatients[userId]!.symptomHistory.add(
+            SymptomRecord(
+              date: createdAt,
+              symptom: symptomsList.isNotEmpty ? symptomsList.join(', ') : 'Aman',
+              severity: severity,
+            ),
+          );
+        }
+      }
+
+      _patients = uniquePatients.values.toList();
+      _patients.sort((a, b) => b.lastUpdate.compareTo(a.lastUpdate));
+    } catch (e) {
+      debugPrint('Error fetching patients: $e');
+    }
 
     _isLoading = false;
     _applyFilters();

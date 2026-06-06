@@ -30,6 +30,7 @@ dependencies:
   url_launcher: ^6.3.2
   supabase_flutter: ^2.14.1
   flutter_dotenv: ^6.0.1
+  xml: ^7.0.1
 
 dev_dependencies:
   flutter_test:

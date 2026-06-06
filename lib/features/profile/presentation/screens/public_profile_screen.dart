@@ -5,8 +5,37 @@ import 'package:respiro/core/constants/app_constants.dart';
 import 'package:go_router/go_router.dart';
 import 'package:respiro/core/widgets/public_drawer.dart';
 
-class PublicProfileScreen extends StatelessWidget {
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class PublicProfileScreen extends StatefulWidget {
   const PublicProfileScreen({super.key});
+
+  @override
+  State<PublicProfileScreen> createState() => _PublicProfileScreenState();
+}
+
+class _PublicProfileScreenState extends State<PublicProfileScreen> {
+  String _userName = 'Pengguna';
+  String _userEmail = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  void _loadUser() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final meta = user.userMetadata;
+      setState(() {
+        if (meta != null && meta['full_name'] != null) {
+          _userName = meta['full_name'];
+        }
+        _userEmail = user.email ?? '';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -105,17 +134,17 @@ class PublicProfileScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Sarah Jenkins',
+                  _userName,
                   style: AppTypography.h2,
                 ),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    const Icon(Icons.person_outline, size: 14, color: AppColors.gray500),
+                    const Icon(Icons.email_outlined, size: 14, color: AppColors.gray500),
                     const SizedBox(width: 4),
                     Text(
-                      'Patient ID: #3492',
-                      style: AppTypography.caption.copyWith(color: AppColors.gray500),
+                      _userEmail.isEmpty ? 'Aktif' : _userEmail,
+                      style: AppTypography.caption.copyWith(color: AppColors.gray500, fontSize: 10),
                     ),
                     const SizedBox(width: 8),
                     TextButton(

@@ -41,7 +41,7 @@ class StaffDashboardScreen extends StatelessWidget {
             const SizedBox(height: 16),
             _buildStatRow(patientProvider, analytics),
             const SizedBox(height: 16),
-            _buildAirQualityCard(analytics),
+            _buildTopRiskRegionCard(analytics),
             const SizedBox(height: 16),
             _buildQuickActions(context),
             const SizedBox(height: 16),
@@ -128,17 +128,11 @@ class StaffDashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAirQualityCard(dynamic analytics) {
-    final aq = analytics?.airQuality ?? 0;
-    final label = analytics?.airQualityLabel ?? 'Baik';
-    Color aqColor;
-    if (aq <= 50) {
-      aqColor = AppColors.green;
-    } else if (aq <= 100) {
-      aqColor = AppColors.amber;
-    } else {
-      aqColor = AppColors.coral;
-    }
+  Widget _buildTopRiskRegionCard(dynamic analytics) {
+    final regions = analytics?.regionalDistribution ?? [];
+    if (regions.isEmpty) return const SizedBox.shrink();
+    
+    final topRegion = regions.first;
 
     return AppCard(
       child: Row(
@@ -147,18 +141,11 @@ class StaffDashboardScreen extends StatelessWidget {
             width: 56,
             height: 56,
             decoration: BoxDecoration(
-              color: aqColor.withAlpha(25),
+              color: AppColors.coral.withAlpha(25),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Center(
-              child: Text(
-                '${aq.toInt()}',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: aqColor,
-                ),
-              ),
+            child: const Center(
+              child: Icon(Icons.warning_amber_rounded, color: AppColors.coral, size: 28),
             ),
           ),
           const SizedBox(width: 16),
@@ -166,8 +153,8 @@ class StaffDashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Kualitas Udara',
+                const Text(
+                  'Kawasan Paling Rawan',
                   style: TextStyle(
                     fontSize: 12,
                     color: AppColors.gray500,
@@ -176,17 +163,17 @@ class StaffDashboardScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  label,
-                  style: TextStyle(
+                  topRegion.region,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: aqColor,
+                    color: AppColors.coral,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Indeks kualitas udara saat ini',
-                  style: TextStyle(
+                  '${topRegion.cases} Kasus Tercatat',
+                  style: const TextStyle(
                     fontSize: 11,
                     color: AppColors.gray500,
                   ),
@@ -194,7 +181,7 @@ class StaffDashboardScreen extends StatelessWidget {
               ],
             ),
           ),
-          Icon(Icons.cloud_rounded, color: aqColor.withAlpha(60), size: 36),
+          Icon(Icons.location_on_rounded, color: AppColors.coral.withAlpha(60), size: 36),
         ],
       ),
     );

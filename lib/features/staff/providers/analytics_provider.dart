@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:respiro/features/staff/models/analytics_model.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AnalyticsProvider extends ChangeNotifier {
   AnalyticsModel? _analytics;
@@ -9,61 +10,70 @@ class AnalyticsProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
 
   AnalyticsProvider() {
-    _loadMockData();
+    fetchAnalytics();
   }
 
-  void _loadMockData() {
+  Future<void> fetchAnalytics() async {
     _isLoading = true;
     notifyListeners();
 
-    _analytics = AnalyticsModel(
-      totalCases: 128,
-      activePatients: 45,
-      highRiskCount: 12,
-      recoveredCount: 71,
-      airQuality: 42,
-      airQualityLabel: 'Baik',
-      monthlyTrend: [
-        MonthlyTrend(month: 'Jan', year: 2025, cases: 15),
-        MonthlyTrend(month: 'Feb', year: 2025, cases: 20),
-        MonthlyTrend(month: 'Mar', year: 2025, cases: 18),
-        MonthlyTrend(month: 'Apr', year: 2025, cases: 25),
-        MonthlyTrend(month: 'Mei', year: 2025, cases: 30),
-        MonthlyTrend(month: 'Jun', year: 2025, cases: 20),
-      ],
-      regionalDistribution: [
-        RegionalDistribution(
-          region: 'Pusat',
-          cases: 42,
-          percentage: 32.8,
-          colorHex: '#FF5722',
-        ),
-        RegionalDistribution(
-          region: 'Utara',
-          cases: 28,
-          percentage: 21.9,
-          colorHex: '#FFA726',
-        ),
-        RegionalDistribution(
-          region: 'Selatan',
-          cases: 15,
-          percentage: 11.7,
-          colorHex: '#009688',
-        ),
-        RegionalDistribution(
-          region: 'Timur',
-          cases: 25,
-          percentage: 19.5,
-          colorHex: '#4DB6AC',
-        ),
-        RegionalDistribution(
-          region: 'Barat',
-          cases: 18,
-          percentage: 14.1,
-          colorHex: '#00796B',
-        ),
-      ],
-    );
+    try {
+      final response = await Supabase.instance.client.from('activities').select();
+      
+      int totalCases = response.length;
+      int activePatients = 0;
+      int highRiskCount = 0;
+      int recoveredCount = 0;
+      
+      Map<String, int> regionCounts = {};
+      
+      for (var row in response) {
+        final symptomsList = (row['symptoms'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [];
+        if (symptomsList.isNotEmpty) {
+          activePatients++;
+          if (symptomsList.length >= 3) {
+            highRiskCount++;
+          }
+        } else {
+          recoveredCount++;
+        }
+        
+        final loc = row['location'] as String? ?? 'Lainnya';
+        regionCounts[loc] = (regionCounts[loc] ?? 0) + 1;
+      }
+      
+      List<RegionalDistribution> regionalDistribution = [];
+      final colors = ['#00796B', '#FF5722', '#FFA726', '#4DB6AC', '#009688', '#E91E63'];
+      int colorIndex = 0;
+      
+      regionCounts.forEach((region, count) {
+        regionalDistribution.add(RegionalDistribution(
+          region: region,
+          cases: count,
+          percentage: totalCases > 0 ? (count / totalCases) * 100 : 0,
+          colorHex: colors[colorIndex % colors.length],
+        ));
+        colorIndex++;
+      });
+      
+      regionalDistribution.sort((a, b) => b.cases.compareTo(a.cases));
+
+      _analytics = AnalyticsModel(
+        totalCases: totalCases,
+        activePatients: activePatients,
+        highRiskCount: highRiskCount,
+        recoveredCount: recoveredCount,
+        airQuality: 42,
+        airQualityLabel: 'Baik',
+        monthlyTrend: [
+          MonthlyTrend(month: 'Jun', year: 2026, cases: totalCases),
+        ],
+        regionalDistribution: regionalDistribution,
+      );
+      
+    } catch (e) {
+      debugPrint('Error fetching analytics: $e');
+    }
 
     _isLoading = false;
     notifyListeners();

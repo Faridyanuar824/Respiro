@@ -57,7 +57,16 @@ final GoRouter router = GoRouter(
             GoRoute(
               path: '/map',
               name: 'map',
-              builder: (context, state) => const MapScreen(),
+              builder: (context, state) {
+                final latStr = state.uri.queryParameters['lat'];
+                final lngStr = state.uri.queryParameters['lng'];
+                final title = state.uri.queryParameters['title'];
+                
+                double? lat = latStr != null ? double.tryParse(latStr) : null;
+                double? lng = lngStr != null ? double.tryParse(lngStr) : null;
+
+                return MapScreen(targetLat: lat, targetLng: lng, targetTitle: title);
+              },
             ),
           ],
         ),

@@ -6,9 +6,68 @@ import 'package:respiro/core/widgets/app_card.dart';
 import 'package:go_router/go_router.dart';
 import 'package:respiro/core/widgets/public_drawer.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:dio/dio.dart';
+import 'package:xml/xml.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
+
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  String _userName = 'Pengguna';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  void _loadUser() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final meta = user.userMetadata;
+      if (meta != null && meta['full_name'] != null) {
+        setState(() {
+          _userName = meta['full_name'];
+        });
+      }
+    }
+  }
+
+  Future<List<Map<String, String>>> _fetchTbcNews() async {
+    try {
+      final response = await Dio().get('https://www.bing.com/news/search?q=Tuberkulosis&format=rss');
+      final document = XmlDocument.parse(response.data.toString());
+      final items = document.findAllElements('item').take(10).toList();
+      
+      return items.map((node) {
+        String? imageUrl;
+        final images = node.descendants.where((e) => e is XmlElement && e.name.local == 'Image');
+        if (images.isNotEmpty) {
+          imageUrl = (images.first as XmlElement).innerText;
+        }
+
+        String? source;
+        final sources = node.descendants.where((e) => e is XmlElement && e.name.local == 'Source');
+        if (sources.isNotEmpty) {
+          source = (sources.first as XmlElement).innerText;
+        }
+
+        return {
+          'title': node.findElements('title').firstOrNull?.innerText ?? '',
+          'link': node.findElements('link').firstOrNull?.innerText ?? '',
+          'imageUrl': imageUrl ?? '',
+          'source': source ?? '',
+        };
+      }).toList();
+    } catch (e) {
+      return [];
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,19 +104,11 @@ class DashboardScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Halo, Sarah!', style: AppTypography.h1),
+            Text('Halo, $_userName!', style: AppTypography.h1),
             const SizedBox(height: 4),
             Text(
               'Semoga pernapasanmu lega hari ini.',
               style: AppTypography.body.copyWith(color: AppColors.gray500),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(child: _buildAirQualityCard()),
-                const SizedBox(width: 16),
-                Expanded(child: _buildInhalerCard()),
-              ],
             ),
             const SizedBox(height: 24),
             _buildDailyCheckCard(context),
@@ -75,28 +126,46 @@ class DashboardScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              clipBehavior: Clip.none,
-              child: Row(
-                children: [
-                  _buildHealthInfoCard(
-                    context,
-                    title: 'Mengenal Penyakit Tuberkulosis (TBC) dan Gejalanya',
-                    category: 'Edukasi',
-                    color: AppColors.primaryTeal,
-                    url: 'https://www.alodokter.com/tuberkulosis',
+            FutureBuilder<List<Map<String, String>>>(
+              future: _fetchTbcNews(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: AppColors.primaryTeal));
+                }
+                if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+                  return Text('Gagal memuat berita terbaru.', style: AppTypography.caption.copyWith(color: AppColors.gray500));
+                }
+
+                final articles = snapshot.data!;
+                final colors = [AppColors.primaryTeal, AppColors.coral, AppColors.amber];
+
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  child: Row(
+                    children: articles.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final item = entry.value;
+                      final color = colors[index % colors.length];
+                      
+                      final publisher = item['source']!.isNotEmpty ? item['source']! : 'Berita TBC';
+                      final title = item['title'] ?? 'Tanpa Judul';
+
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 16),
+                        child: _buildHealthInfoCard(
+                          context,
+                          title: title,
+                          category: publisher,
+                          color: color,
+                          url: item['link'] ?? 'https://news.google.com',
+                          imageUrl: item['imageUrl']!.isNotEmpty ? item['imageUrl'] : null,
+                        ),
+                      );
+                    }).toList(),
                   ),
-                  const SizedBox(width: 16),
-                  _buildHealthInfoCard(
-                    context,
-                    title: 'WHO: Situasi Tuberkulosis di Indonesia dan Pencegahannya',
-                    category: 'Kesehatan',
-                    color: AppColors.amber,
-                    url: 'https://www.who.int/indonesia/health-topics/tuberculosis',
-                  ),
-                ],
-              ),
+                );
+              },
             ),
           ],
         ),
@@ -104,71 +173,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAirQualityCard() {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.air_rounded, color: AppColors.primaryTeal, size: 16),
-              const SizedBox(width: 8),
-              Text('KUALITAS\nUDARA', style: AppTypography.caption.copyWith(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryTeal)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('42', style: AppTypography.h1.copyWith(fontSize: 32)),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppColors.green.withAlpha(30),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('Baik', style: AppTypography.caption.copyWith(color: AppColors.green, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('Aman untuk\naktivitas luar.', style: AppTypography.caption.copyWith(color: AppColors.gray500)),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildInhalerCard() {
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.medication_liquid_rounded, color: AppColors.coral, size: 16),
-              const SizedBox(width: 8),
-              Text('INHALER', style: AppTypography.caption.copyWith(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.coral)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('0', style: AppTypography.h1.copyWith(fontSize: 32)),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text('Kali hari ini', style: AppTypography.caption.copyWith(color: AppColors.gray500, fontSize: 10)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('Belum ada\npenggunaan.', style: AppTypography.caption.copyWith(color: AppColors.gray500)),
-        ],
-      ),
-    );
-  }
 
   Widget _buildDailyCheckCard(BuildContext context) {
     return GestureDetector(
@@ -226,7 +231,7 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHealthInfoCard(BuildContext context, {required String title, required String category, required Color color, required String url}) {
+  Widget _buildHealthInfoCard(BuildContext context, {required String title, required String category, required Color color, required String url, String? imageUrl}) {
     return GestureDetector(
       onTap: () async {
         final Uri uri = Uri.parse(url);
@@ -261,10 +266,16 @@ class DashboardScreen extends StatelessWidget {
               decoration: BoxDecoration(
                 color: color.withAlpha(30),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                image: imageUrl != null
+                    ? DecorationImage(
+                        image: NetworkImage(imageUrl),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
               ),
-              child: Center(
+              child: imageUrl == null ? Center(
                 child: Icon(Icons.image_outlined, size: 48, color: color.withAlpha(100)),
-              ),
+              ) : null,
             ),
             Padding(
               padding: const EdgeInsets.all(16),
@@ -277,7 +288,12 @@ class DashboardScreen extends StatelessWidget {
                       color: color.withAlpha(20),
                       borderRadius: BorderRadius.circular(100),
                     ),
-                    child: Text(category, style: AppTypography.caption.copyWith(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      category,
+                      style: AppTypography.caption.copyWith(color: color, fontSize: 10, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(

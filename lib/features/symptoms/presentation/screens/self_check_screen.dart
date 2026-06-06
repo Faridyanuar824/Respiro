@@ -14,8 +14,15 @@ class SelfCheckScreen extends StatefulWidget {
 
 class _SelfCheckScreenState extends State<SelfCheckScreen> {
   String _selectedLocation = 'Kampus';
+  final _customLocationController = TextEditingController();
   int _durationHours = 1;
   bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _customLocationController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -106,6 +113,21 @@ class _SelfCheckScreenState extends State<SelfCheckScreen> {
                       );
                     }).toList(),
                   ),
+                  if (_selectedLocation == 'Lainnya') ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _customLocationController,
+                      decoration: InputDecoration(
+                        hintText: 'Ketik lokasi di sini...',
+                        filled: true,
+                        fillColor: AppColors.gray100,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -135,15 +157,28 @@ class _SelfCheckScreenState extends State<SelfCheckScreen> {
                           final user = Supabase.instance.client.auth.currentUser;
                           if (user == null) throw Exception('Silakan login terlebih dahulu');
                           
+                          final locationToSave = _selectedLocation == 'Lainnya' 
+                              ? _customLocationController.text.trim() 
+                              : _selectedLocation;
+                              
+                          if (locationToSave.isEmpty) {
+                            throw Exception('Lokasi tidak boleh kosong');
+                          }
+
                           await Supabase.instance.client.from('activities').insert({
                             'user_id': user.id,
-                            'location': _selectedLocation,
+                            'location': locationToSave,
                             'duration_hours': _durationHours,
                             'notes': 'Dicatat pada ${DateTime.now().toString().split('.')[0]}',
                           });
                           
                           if (mounted) {
-                            setState(() => _isLoading = false);
+                            setState(() {
+                              _isLoading = false;
+                              if (_selectedLocation == 'Lainnya') {
+                                _customLocationController.clear();
+                              }
+                            });
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: const Text('Catatan berhasil disimpan!'),
@@ -181,18 +216,55 @@ class _SelfCheckScreenState extends State<SelfCheckScreen> {
             const SizedBox(height: 32),
             Text('Riwayat Catatan', style: AppTypography.h2),
             const SizedBox(height: 16),
-            _buildHistoryCard(
-              date: 'OKT\n23',
-              location: 'Kampus',
-              durationHours: 4,
-              notes: 'Tugas kelompok di area merokok, udara terasa pengap.',
-            ),
-            const SizedBox(height: 12),
-            _buildHistoryCard(
-              date: 'OKT\n22',
-              location: 'Kantor',
-              durationHours: 8,
-              notes: 'Bekerja seharian, memakai masker saat di luar.',
+            StreamBuilder<List<Map<String, dynamic>>>(
+              stream: Supabase.instance.client.auth.currentUser == null 
+                  ? const Stream.empty() 
+                  : Supabase.instance.client
+                      .from('activities')
+                      .stream(primaryKey: ['id'])
+                      .eq('user_id', Supabase.instance.client.auth.currentUser!.id)
+                      .order('created_at', ascending: false),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator(color: AppColors.primaryTeal));
+                }
+                if (snapshot.hasError) {
+                  return Text('Terjadi kesalahan: ${snapshot.error}', style: const TextStyle(color: AppColors.coral));
+                }
+                
+                final activities = snapshot.data ?? [];
+                
+                if (activities.isEmpty) {
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(20)),
+                    child: Text('Belum ada riwayat aktivitas.', textAlign: TextAlign.center, style: AppTypography.body.copyWith(color: AppColors.gray500)),
+                  );
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: activities.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final act = activities[index];
+                    final dateStr = act['created_at'] as String;
+                    final date = DateTime.parse(dateStr).toLocal();
+                    
+                    final months = ['JAN', 'FEB', 'MAR', 'APR', 'MEI', 'JUN', 'JUL', 'AGU', 'SEP', 'OKT', 'NOV', 'DES'];
+                    final formattedDate = '${months[date.month - 1]}\n${date.day}';
+
+                    return _buildHistoryCard(
+                      date: formattedDate,
+                      location: act['location'] ?? 'Tidak diketahui',
+                      durationHours: act['duration_hours'] ?? 0,
+                      notes: act['notes'] ?? '',
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),

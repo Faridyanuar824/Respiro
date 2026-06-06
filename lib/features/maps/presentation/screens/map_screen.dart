@@ -5,9 +5,14 @@ import 'package:respiro/core/theme/app_colors.dart';
 import 'package:respiro/core/theme/app_typography.dart';
 import 'package:go_router/go_router.dart';
 import 'package:respiro/core/widgets/public_drawer.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  final double? targetLat;
+  final double? targetLng;
+  final String? targetTitle;
+
+  const MapScreen({super.key, this.targetLat, this.targetLng, this.targetTitle});
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -16,8 +21,127 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
   
-  // Default center: Surabaya
-  final LatLng _center = const LatLng(-7.250445, 112.768845);
+  late LatLng _center;
+  String? _markerTitle;
+
+  List<Map<String, dynamic>> _riskZones = [];
+  Map<String, dynamic>? _selectedZone;
+  bool _isLoadingMapData = true;
+
+  // Koordinat dummy untuk mapping teks lokasi
+  final Map<String, LatLng> _locationCoords = {
+    'Kampus': const LatLng(-7.279, 112.790), // Area ITS/Unair
+    'Kantor': const LatLng(-7.265, 112.750), // Pusat Surabaya
+    'Perpus': const LatLng(-7.280, 112.795), 
+    'Rumah': const LatLng(-7.300, 112.740),
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _center = (widget.targetLat != null && widget.targetLng != null)
+        ? LatLng(widget.targetLat!, widget.targetLng!)
+        : const LatLng(-7.279, 112.790);
+    _markerTitle = widget.targetTitle;
+
+    if (widget.targetLat != null && widget.targetLng != null) {
+      _selectedZone = {
+        'location': widget.targetTitle ?? 'Fasilitas',
+        'count': 0,
+        'status': 'Fasilitas Medis',
+        'color': AppColors.primaryTeal,
+        'coord': _center,
+        'isFacility': true,
+      };
+    }
+
+    _fetchActivityData();
+  }
+
+  Future<void> _fetchActivityData() async {
+    try {
+      final data = await Supabase.instance.client.from('activities').select();
+      
+      final Map<String, int> locationCounts = {};
+      for (var row in data) {
+        final loc = row['location'] as String;
+        locationCounts[loc] = (locationCounts[loc] ?? 0) + 1;
+      }
+
+      final List<Map<String, dynamic>> zones = [];
+      locationCounts.forEach((loc, count) {
+        LatLng? coord = _locationCoords[loc];
+        if (coord == null) {
+          final hash = loc.hashCode;
+          final latOffset = (hash % 100) / 10000.0 - 0.005;
+          final lngOffset = ((hash ~/ 100) % 100) / 10000.0 - 0.005;
+          coord = LatLng(-7.279 + latOffset, 112.790 + lngOffset);
+        }
+
+        String status = 'Aman';
+        Color color = AppColors.primaryTeal;
+        if (count >= 4) {
+          status = 'Rawan TBC';
+          color = AppColors.coral;
+        } else if (count >= 2) {
+          status = 'Waspada';
+          color = AppColors.amber;
+        }
+
+        zones.add({
+          'location': loc,
+          'count': count,
+          'status': status,
+          'color': color,
+          'coord': coord,
+          'isFacility': false,
+        });
+      });
+
+      if (mounted) {
+        setState(() {
+          _riskZones = zones;
+          _isLoadingMapData = false;
+          
+          if (widget.targetLat == null && zones.isNotEmpty) {
+            zones.sort((a, b) => b['count'].compareTo(a['count']));
+            _selectedZone = zones.first;
+            _center = zones.first['coord'];
+            _markerTitle = zones.first['location'];
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _mapController.move(_center, 14.0);
+            });
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingMapData = false);
+    }
+  }
+
+  @override
+  void didUpdateWidget(MapScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.targetLat != null && widget.targetLng != null && 
+        (widget.targetLat != oldWidget.targetLat || widget.targetLng != oldWidget.targetLng)) {
+      final newPos = LatLng(widget.targetLat!, widget.targetLng!);
+      setState(() {
+        _center = newPos;
+        _markerTitle = widget.targetTitle;
+        _selectedZone = {
+          'location': widget.targetTitle ?? 'Fasilitas',
+          'count': 0,
+          'status': 'Fasilitas Medis',
+          'color': AppColors.primaryTeal,
+          'coord': newPos,
+          'isFacility': true,
+        };
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapController.move(newPos, 16.0);
+      });
+    }
+  }
 
   void _moveToCurrentLocation() {
     _mapController.move(_center, 15.0);
@@ -53,18 +177,97 @@ class _MapScreenState extends State<MapScreen> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.respiro',
               ),
+              if (_riskZones.isNotEmpty)
+                CircleLayer(
+                  circles: _riskZones.where((z) => z['count'] >= 2).map((z) {
+                    final color = z['color'] as Color;
+                    return CircleMarker(
+                      point: z['coord'],
+                      color: color.withAlpha(40),
+                      borderStrokeWidth: 2,
+                      borderColor: color,
+                      radius: (z['count'] as int) * 15.0 + 30.0,
+                    );
+                  }).toList(),
+                ),
               MarkerLayer(
                 markers: [
-                  Marker(
-                    point: _center,
-                    width: 40,
-                    height: 40,
-                    child: const Icon(
-                      Icons.location_pin,
-                      color: AppColors.primaryTeal,
-                      size: 40,
+                  ..._riskZones.map((zone) {
+                    final isSelected = _selectedZone != null && _selectedZone!['location'] == zone['location'];
+                    final color = zone['color'] as Color;
+                    return Marker(
+                      point: zone['coord'],
+                      width: 120,
+                      height: 90,
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedZone = zone;
+                            _center = zone['coord'];
+                            _markerTitle = zone['location'];
+                            _mapController.move(_center, 15.0);
+                          });
+                        },
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isSelected)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: [
+                                    BoxShadow(color: Colors.black.withAlpha(20), blurRadius: 4, offset: const Offset(0, 2)),
+                                  ],
+                                ),
+                                child: Text(
+                                  zone['location'],
+                                  style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold, fontSize: 10),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            Icon(
+                              Icons.location_pin,
+                              color: color,
+                              size: isSelected ? 48 : 36,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
+                  if (widget.targetLat != null && widget.targetLng != null && !(_selectedZone != null && _selectedZone!['isFacility'] == false))
+                    Marker(
+                      point: LatLng(widget.targetLat!, widget.targetLng!),
+                      width: 120,
+                      height: 90,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withAlpha(20), blurRadius: 4, offset: const Offset(0, 2)),
+                              ],
+                            ),
+                            child: Text(
+                              widget.targetTitle ?? 'Fasilitas',
+                              style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold, fontSize: 10),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const Icon(
+                            Icons.local_hospital,
+                            color: AppColors.primaryTeal,
+                            size: 48,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
                 ],
               ),
             ],
@@ -103,6 +306,27 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Widget _buildMapInfoCard() {
+    if (_isLoadingMapData) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withAlpha(20), blurRadius: 16, offset: const Offset(0, 8)),
+          ],
+        ),
+        child: const Center(child: CircularProgressIndicator(color: AppColors.primaryTeal)),
+      );
+    }
+
+    final zone = _selectedZone;
+    final title = zone != null ? zone['location'] : 'Pilih Lokasi di Peta';
+    final status = zone != null ? zone['status'] : 'Tidak Diketahui';
+    final count = zone != null ? zone['count'] : 0;
+    final color = zone != null ? zone['color'] : AppColors.gray500;
+    final isFacility = zone != null ? zone['isFacility'] ?? false : false;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -124,71 +348,87 @@ class _MapScreenState extends State<MapScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Kawasan\nSudirman', style: AppTypography.h2),
-                  const SizedBox(height: 4),
-                  Text('Kec. Setiabudi, Jakarta Selatan', style: AppTypography.caption.copyWith(color: AppColors.gray500)),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.coralPale,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: Row(
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.warning_rounded, color: AppColors.coral, size: 16),
-                    const SizedBox(width: 4),
-                    Text('Risiko\nTinggi', style: AppTypography.caption.copyWith(color: AppColors.coral, fontWeight: FontWeight.bold, fontSize: 10)),
+                    Text(title, style: AppTypography.h2),
+                    const SizedBox(height: 4),
+                    Text(isFacility ? 'Fasilitas Kesehatan Terpilih' : '$count pengguna pernah beraktivitas di sini', style: AppTypography.caption.copyWith(color: AppColors.gray500)),
                   ],
                 ),
               ),
+              if (!isFacility)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: (color as Color).withAlpha(30),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(status == 'Aman' ? Icons.check_circle_rounded : Icons.warning_rounded, color: color, size: 16),
+                      const SizedBox(width: 4),
+                      Text(status, style: AppTypography.caption.copyWith(color: color, fontWeight: FontWeight.bold, fontSize: 10)),
+                    ],
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 20),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: _buildInfoMetric(
-                  icon: Icons.air_rounded,
-                  label: 'Kualitas Udara (AQI)',
-                  value: '152',
-                  status: 'Tidak Sehat',
-                  valueColor: AppColors.coral,
-                ),
+                child: isFacility 
+                  ? _buildInfoMetric(
+                      icon: Icons.local_hospital_rounded,
+                      label: 'Layanan TBC',
+                      value: 'Tersedia',
+                      status: 'Poli Paru & TCM',
+                      valueColor: AppColors.primaryTeal,
+                    )
+                  : _buildInfoMetric(
+                      icon: Icons.people_alt_rounded,
+                      label: 'Kepadatan',
+                      value: count >= 4 ? 'Tinggi' : (count >= 2 ? 'Sedang' : 'Rendah'),
+                      status: 'Catatan Aktivitas',
+                      valueColor: color as Color,
+                    ),
               ),
-              Container(width: 1, height: 40, color: AppColors.gray300),
+              Container(width: 1, height: 48, color: AppColors.gray300),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 16),
-                  child: _buildInfoMetric(
-                    icon: Icons.thermostat_rounded,
-                    label: 'Suhu & Kelembaban',
-                    value: '32°C',
-                    status: '76%',
-                    valueColor: AppColors.primaryTeal,
-                  ),
+                  child: isFacility
+                    ? _buildInfoMetric(
+                        icon: Icons.access_time_rounded,
+                        label: 'Operasional',
+                        value: 'Buka',
+                        status: '08:00 - 20:00',
+                        valueColor: AppColors.primaryTeal,
+                      )
+                    : _buildInfoMetric(
+                        icon: Icons.coronavirus_rounded,
+                        label: 'Risiko TBC',
+                        value: status == 'Rawan TBC' ? 'Tinggi' : (status == 'Waspada' ? 'Sedang' : 'Rendah'),
+                        status: 'Estimasi Sistem',
+                        valueColor: color as Color,
+                      ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Text('Rekomendasi Aktivitas', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold, color: AppColors.gray700)),
-          const SizedBox(height: 12),
-          _buildRecommendationRow(
-            icon: Icons.masks_rounded,
-            title: 'Gunakan Masker N95',
-            desc: 'Sangat disarankan jika harus beraktivitas di luar ruangan.',
-          ),
-          const SizedBox(height: 12),
-          _buildRecommendationRow(
-            icon: Icons.home_rounded,
-            title: 'Kurangi Aktivitas Outdoor',
-            desc: 'Terutama bagi kelompok sensitif (anak-anak, lansia).',
-          ),
+          if (status == 'Rawan TBC') ...[
+            const SizedBox(height: 20),
+            Text('Rekomendasi Aktivitas', style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold, color: AppColors.gray700)),
+            const SizedBox(height: 12),
+            _buildRecommendationRow(
+              icon: Icons.masks_rounded,
+              title: 'Wajib Gunakan Masker N95',
+              desc: 'Kawasan ini memiliki kepadatan aktivitas tinggi, risiko penularan TBC meningkat.',
+            ),
+          ],
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
@@ -219,21 +459,13 @@ class _MapScreenState extends State<MapScreen> {
           children: [
             Icon(icon, size: 16, color: AppColors.gray500),
             const SizedBox(width: 4),
-            Text(label, style: AppTypography.caption.copyWith(color: AppColors.gray500, fontSize: 10)),
+            Expanded(child: Text(label, style: AppTypography.caption.copyWith(color: AppColors.gray500, fontSize: 10), maxLines: 1, overflow: TextOverflow.ellipsis)),
           ],
         ),
-        const SizedBox(height: 4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(value, style: AppTypography.h2.copyWith(color: valueColor)),
-            const SizedBox(width: 4),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 2),
-              child: Text(status, style: AppTypography.caption.copyWith(color: AppColors.gray700, fontSize: 11)),
-            ),
-          ],
-        ),
+        const SizedBox(height: 6),
+        Text(value, style: AppTypography.h2.copyWith(color: valueColor, fontSize: 18), maxLines: 1, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 2),
+        Text(status, style: AppTypography.caption.copyWith(color: AppColors.gray700, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
       ],
     );
   }

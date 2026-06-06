@@ -3,8 +3,37 @@ import 'package:go_router/go_router.dart';
 import 'package:respiro/core/theme/app_colors.dart';
 import 'package:respiro/core/theme/app_typography.dart';
 
-class PublicDrawer extends StatelessWidget {
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+class PublicDrawer extends StatefulWidget {
   const PublicDrawer({super.key});
+
+  @override
+  State<PublicDrawer> createState() => _PublicDrawerState();
+}
+
+class _PublicDrawerState extends State<PublicDrawer> {
+  String _userName = 'Pengguna';
+  String _userEmail = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
+
+  void _loadUser() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final meta = user.userMetadata;
+      setState(() {
+        if (meta != null && meta['full_name'] != null) {
+          _userName = meta['full_name'];
+        }
+        _userEmail = user.email ?? '';
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -142,8 +171,8 @@ class PublicDrawer extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Sarah Jenkins', style: AppTypography.h3),
-                Text('Patient ID: #3492', style: AppTypography.caption.copyWith(color: AppColors.gray500)),
+                Text(_userName, style: AppTypography.h3),
+                Text(_userEmail.isEmpty ? 'Aktif' : _userEmail, style: AppTypography.caption.copyWith(color: AppColors.gray500, fontSize: 10)),
               ],
             ),
           ),
